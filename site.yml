@@ -1,0 +1,74 @@
+---
+- name: Secure Enterprise Database Deployment and Seeding using Ansible
+  hosts: msg_db_servers
+  become: yes
+  vars:
+    db_version: "16"
+
+  tasks:
+    - name: 1. Ensure ACL tool package is present on host for privilege escalation
+      apt:
+        name: acl
+        state: present
+        update_cache: yes
+
+    - name: 2. Install PostgreSQL and database dependencies
+      apt:
+        name:
+          - "postgresql-{{ db_version }}"
+          - "postgresql-contrib-{{ db_version }}"
+          - python3-psycopg2
+        state: present
+
+    - name: 3. Provision database administrative account using Vault credentials
+      postgresql_user:
+        name: "{{ vault_db_user }}"
+        password: "{{ vault_db_password }}"
+        role_attr_flags: SUPERUSER
+      become_user: postgres
+
+    - name: 4. Initialize production database instance
+      postgresql_db:
+        name: "{{ vault_db_name }}"
+        owner: "{{ vault_db_user }}"
+      become_user: postgres
+
+    - name: 5. Build live institutional student data structures
+      postgresql_query:
+        login_db: "{{ vault_db_name }}"
+        login_user: "{{ vault_db_user }}"
+        login_password: "{{ vault_db_password }}"
+        login_host: localhost
+        query: |
+          CREATE TABLE IF NOT EXISTS students (
+              student_id SERIAL PRIMARY KEY,
+              national_id VARCHAR(20) UNIQUE,
+              first_name VARCHAR(50),
+              last_name VARCHAR(50),
+              campus VARCHAR(20)
+          );
+
+    - name: 6. Optimize table execution path with performance indexing
+      postgresql_idx:
+        login_db: "{{ vault_db_name }}"
+        login_user: "{{ vault_db_user }}"
+        login_password: "{{ vault_db_password }}"
+        login_host: localhost
+        table: students
+        idxname: idx_students_campus
+        columns: campus
+        state: present
+
+    - name: 7. Seed database with real institutional student records
+      postgresql_query:
+        login_db: "{{ vault_db_name }}"
+        login_user: "{{ vault_db_user }}"
+        login_password: "{{ vault_db_password }}"
+        login_host: localhost
+        query: |
+          INSERT INTO students (national_id, first_name, last_name, campus) VALUES
+          ('MW-BL-101', 'Chikondi', 'Phiri', 'Mpemba'),
+          ('MW-LL-102', 'Limbani', 'Banda', 'Kanengo'),
+          ('MW-BL-103', 'Tiame', 'Kumwenda', 'Mpemba')
+          ON CONFLICT (national_id) DO NOTHING;
+
