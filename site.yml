@@ -72,3 +72,37 @@
           ('MW-BL-103', 'Tiame', 'Kumwenda', 'Mpemba')
           ON CONFLICT (national_id) DO NOTHING;
 
+    - name: 8. Verify backup storage target destination directory exists
+      file:
+        path: "/var/backups/postgres"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0755'
+
+    - name: 9. Deploy secure non-chained logical database backup execution script
+      copy:
+        dest: /usr/local/bin/pg_backup.sh
+        owner: postgres
+        group: postgres
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Secure Disaster Recovery Backup Engine for MSG
+          BACKUP_PATH="/var/backups/postgres/{{ vault_db_name }}_$(date +%Y%m%d_%H%M%S).sql"
+
+          echo "Starting institutional database backup sequence..."
+
+          # Force execution context to run completely inside the postgres user profile
+          pg_dump {{ vault_db_name }} > "$BACKUP_PATH" 2> /var/backups/postgres/backup_error.log
+
+          echo "Backup processing event finalized successfully."
+
+    - name: 10. Schedule cron job execution window for nightly automated backups
+      cron:
+        name: "Execute nightly database backup schedule sequence"
+        minute: "0"
+        hour: "1"
+        user: postgres  # Run the cron job directly as the postgres service user
+        job: "/usr/local/bin/pg_backup.sh"
+
