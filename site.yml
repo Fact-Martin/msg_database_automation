@@ -33,7 +33,7 @@
         owner: "{{ vault_db_user }}"
       become_user: postgres
 
-    - name: 5. Build live institutional student data structures
+    - name: 5. Build base student structures
       postgresql_query:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -48,6 +48,47 @@
               campus VARCHAR(20)
           );
 
+    # SAFELY UPGRADE AND ADD THE NEW RELATIONAL STRUCTURES WITHOUT CRASHING
+    - name: 5b. Run safe relational migrations and schema expansion
+      postgresql_query:
+        login_db: "{{ vault_db_name }}"
+        login_user: "{{ vault_db_user }}"
+        login_password: "{{ vault_db_password }}"
+        login_host: localhost
+        query: |
+          -- Create departments first so other tables can link to it
+          CREATE TABLE IF NOT EXISTS departments (
+              department_id SERIAL PRIMARY KEY,
+              department_name VARCHAR(100) NOT NULL UNIQUE,
+              head_of_department VARCHAR(100)
+          );
+
+          -- Create staff table linking to departments
+          CREATE TABLE IF NOT EXISTS staff (
+              staff_id SERIAL PRIMARY KEY,
+              national_id VARCHAR(20) UNIQUE NOT NULL,
+              first_name VARCHAR(50) NOT NULL,
+              last_name VARCHAR(50) NOT NULL,
+              email VARCHAR(100) UNIQUE NOT NULL,
+              department_id INT REFERENCES departments(department_id) ON DELETE SET NULL,
+              job_title VARCHAR(50) NOT NULL
+          );
+
+          -- Safe Table Migration: Add new columns to students table if they do not exist
+          ALTER TABLE students ADD COLUMN IF NOT EXISTS year_of_study INT CHECK (year_of_study BETWEEN 1 AND 4);
+          ALTER TABLE students ADD COLUMN IF NOT EXISTS department_id INT REFERENCES departments(department_id) ON DELETE RESTRICT;
+
+          -- Create grades table linking back to both students and staff tables
+          CREATE TABLE IF NOT EXISTS students_grades (
+              grade_id SERIAL PRIMARY KEY,
+              student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+              course_code VARCHAR(10) NOT NULL,
+              course_name VARCHAR(100) NOT NULL,
+              numeric_grade INT CHECK (numeric_grade BETWEEN 0 AND 100),
+              letter_grade VARCHAR(2),
+              lecturer_id INT REFERENCES staff(staff_id) ON DELETE SET NULL
+          );
+
     - name: 6. Optimize table execution path with performance indexing
       postgresql_idx:
         login_db: "{{ vault_db_name }}"
@@ -59,6 +100,18 @@
         columns: campus
         state: present
 
+    # OPTIMIZATION ADDITION: Index the grades table to prevent performance bottlenecks
+    - name: 6b. Optimize grades lookups with performance indexing
+      postgresql_idx:
+        login_db: "{{ vault_db_name }}"
+        login_user: "{{ vault_db_user }}"
+        login_password: "{{ vault_db_password }}"
+        login_host: localhost
+        table: students_grades
+        idxname: idx_grades_student_id
+        columns: student_id
+        state: present
+
     - name: 7. Seed database with real institutional student records
       postgresql_query:
         login_db: "{{ vault_db_name }}"
@@ -66,11 +119,34 @@
         login_password: "{{ vault_db_password }}"
         login_host: localhost
         query: |
+          -- Seed departments first
+          INSERT INTO departments (department_name, head_of_department) VALUES
+          ('Public Administration', 'Dr. J. Phiri'),
+          ('Information Systems Management', 'Prof. E. Banda')
+          ON CONFLICT (department_name) DO NOTHING;
+
+          -- Seed staff
+          INSERT INTO staff (national_id, first_name, last_name, email, department_id, job_title) VALUES
+          ('MW-ST-01', 'Grace', 'Chirwa', 'gchirwa@msg.ac.mw', 2, 'Senior Lecturer')
+          ON CONFLICT (national_id) DO NOTHING;
+
+          -- Keep your base student records working cleanly
           INSERT INTO students (national_id, first_name, last_name, campus) VALUES
           ('MW-BL-101', 'Chikondi', 'Phiri', 'Mpemba'),
           ('MW-LL-102', 'Limbani', 'Banda', 'Kanengo'),
           ('MW-BL-103', 'Tiame', 'Kumwenda', 'Mpemba')
           ON CONFLICT (national_id) DO NOTHING;
+
+          -- Securely update the newly migrated columns on existing records
+          UPDATE students SET department_id = 1, year_of_study = 3 WHERE national_id = 'MW-BL-101';
+          UPDATE students SET department_id = 2, year_of_study = 2 WHERE national_id = 'MW-LL-102';
+          UPDATE students SET department_id = 1, year_of_study = 1 WHERE national_id = 'MW-BL-103';
+
+          -- Seed grades matching your student records
+          INSERT INTO students_grades (student_id, course_code, course_name, numeric_grade, letter_grade, lecturer_id) VALUES
+          (1, 'PAS3101', 'Public Policy Analysis', 78, 'A', 1),
+          (2, 'ISM2102', 'Database Systems Management', 85, 'A', 1)
+          ON CONFLICT DO NOTHING;
 
     - name: 8. Verify backup storage target destination directory exists
       file:
@@ -89,12 +165,12 @@
         content: |
           #!/bin/bash
           # Secure Disaster Recovery Backup Engine for MSG
-          BACKUP_PATH="/var/backups/postgres/{{ vault_db_name }}_$(date +%Y%m%d_%H%M%S).sql"
+          BACKUP_PATH="/var/backups/postgres/{{ vault_db_name }}_$(date +%Y%m%d_%H%M%S).sql.gz"
 
           echo "Starting institutional database backup sequence..."
 
-          # Force execution context to run completely inside the postgres user profile
-          pg_dump {{ vault_db_name }} > "$BACKUP_PATH" 2> /var/backups/postgres/backup_error.log
+          # Force execution context to run completely inside the postgres user profile with gzip compression
+          pg_dump {{ vault_db_name }} | gzip > "$BACKUP_PATH" 2> /var/backups/postgres/backup_error.log
 
           echo "Backup processing event finalized successfully."
 
@@ -103,6 +179,5 @@
         name: "Execute nightly database backup schedule sequence"
         minute: "0"
         hour: "1"
-        user: postgres  # Run the cron job directly as the postgres service user
+        user: postgres
         job: "/usr/local/bin/pg_backup.sh"
-
