@@ -1,11 +1,14 @@
 ---
-- name: Secure Enterprise Database Deployment and Seeding using Ansible
+- name: Secure Multi-Campus Relational Database Orchestration & Boundary Hardening
   hosts: msg_db_servers
   become: yes
   vars:
     db_version: "16"
+    primary_ip: "192.168.106.132"
+    subnet_boundary: "192.168.106.0/24"
 
   tasks:
+    # --- COMMON DEPENDENCY PROVISIONING ---
     - name: 1. Ensure ACL tool package is present on host for privilege escalation
       apt:
         name: acl
@@ -20,20 +23,93 @@
           - python3-psycopg2
         state: present
 
-    - name: 3. Provision database administrative account using Vault credentials
+    - name: 2b. Verify and initialize default PostgreSQL cluster layout natively
+      file:
+        path: "/etc/postgresql/{{ db_version }}/main"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0755'
+
+    - name: 2c. Rebuild baseline configuration infrastructure only if missing
+      command: "pg_createcluster {{ db_version }} main"
+      args:
+        creates: "/etc/postgresql/{{ db_version }}/main/postgresql.conf"
+      register: cluster_init
+      failed_when: false
+
+
+    - name: 3. Deploy customized performance optimization profile securely
+      blockinfile:
+        path: "/etc/postgresql/{{ db_version }}/main/postgresql.conf"
+        marker: "# {mark} MSG PERFORMANCE OPTIMIZATION PROFILE"
+        block: |
+          max_connections = 150
+          shared_buffers = 512MB
+          effective_cache_size = 1GB
+          maintenance_work_mem = 128MB
+          work_mem = 8MB
+          wal_level = replica
+          max_wal_senders = 10
+          wal_keep_size = 1024MB
+          shared_preload_libraries = 'pg_stat_statements'
+          pg_stat_statements.max = 10000
+          pg_stat_statements.track = all
+          logging_collector = on
+          log_min_duration_statement = 200
+
+    - name: 4. Configure database engine to listen to target campus network interface
+      lineinfile:
+        path: "/etc/postgresql/{{ db_version }}/main/postgresql.conf"
+        regexp: "^#?listen_addresses\\s*="
+        line: "listen_addresses = '*'"
+
+    # --- BOUNDARY HARDENING IN LINE WITH ICT POLICY ---
+    - name: 5. Restrict incoming network traffic strictly to the regional subnet
+      blockinfile:
+        path: "/etc/postgresql/{{ db_version }}/main/pg_hba.conf"
+        block: |
+          host    replication     {{ vault_repl_user }}     {{ subnet_boundary }}        scram-sha-256
+          host    all             all             {{ subnet_boundary }}        scram-sha-256
+          host    all             all             127.0.0.1/32            scram-sha-256
+
+    - name: 6. Restart database service to apply boundary configurations
+      service:
+        name: postgresql
+        state: restarted
+
+    - name: 6b. Wait for PostgreSQL local UNIX socket to become active
+      wait_for:
+        path: "/var/run/postgresql/.s.PGSQL.5432"
+        state: started
+        timeout: 25
+      when: inventory_hostname in groups['primary']
+
+    # --- PRIMARY ENGINE SCHEMA RUNTIME EXECUTION (KANENGO CAMPUS) ---
+    - name: 7. Provision high-speed streaming replication service account
+      postgresql_user:
+        name: "{{ vault_repl_user }}"
+        password: "{{ vault_repl_password }}"
+        role_attr_flags: REPLICATION
+      become_user: postgres
+      when: inventory_hostname in groups['primary']
+
+    - name: 8. Provision production administrative user account
       postgresql_user:
         name: "{{ vault_db_user }}"
         password: "{{ vault_db_password }}"
         role_attr_flags: SUPERUSER
       become_user: postgres
+      when: inventory_hostname in groups['primary']
 
-    - name: 4. Initialize production database instance
+    - name: 9. Initialize primary institutional database instance
       postgresql_db:
         name: "{{ vault_db_name }}"
         owner: "{{ vault_db_user }}"
       become_user: postgres
+      when: inventory_hostname in groups['primary']
 
-    - name: 5. Build base student structures
+    - name: 10a. Build base student structures
       postgresql_query:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -47,9 +123,9 @@
               last_name VARCHAR(50),
               campus VARCHAR(20)
           );
+      when: inventory_hostname in groups['primary']
 
-    # SAFELY UPGRADE AND ADD THE NEW RELATIONAL STRUCTURES WITHOUT CRASHING
-    - name: 5b. Run safe relational migrations and schema expansion
+    - name: 10b. Run safe relational migrations and schema expansion
       postgresql_query:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -88,8 +164,9 @@
               letter_grade VARCHAR(2),
               lecturer_id INT REFERENCES staff(staff_id) ON DELETE SET NULL
           );
+      when: inventory_hostname in groups['primary']
 
-    - name: 6. Optimize table execution path with performance indexing
+    - name: 11a. Optimize table execution path with performance indexing
       postgresql_idx:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -99,9 +176,10 @@
         idxname: idx_students_campus
         columns: campus
         state: present
+      when: inventory_hostname in groups['primary']
 
     # OPTIMIZATION ADDITION: Index the grades table to prevent performance bottlenecks
-    - name: 6b. Optimize grades lookups with performance indexing
+    - name: 11b. Optimize grades lookups with performance indexing
       postgresql_idx:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -111,8 +189,9 @@
         idxname: idx_grades_student_id
         columns: student_id
         state: present
+      when: inventory_hostname in groups['primary']
 
-    - name: 7. Seed database with real institutional student records
+    - name: 12. Seed primary database instance with real institutional tuples
       postgresql_query:
         login_db: "{{ vault_db_name }}"
         login_user: "{{ vault_db_user }}"
@@ -130,7 +209,7 @@
           ('MW-ST-01', 'Grace', 'Chirwa', 'gchirwa@msg.ac.mw', 2, 'Senior Lecturer')
           ON CONFLICT (national_id) DO NOTHING;
 
-          -- Keep your base student records working cleanly
+          -- Keep base students records working cleanly
           INSERT INTO students (national_id, first_name, last_name, campus) VALUES
           ('MW-BL-101', 'Chikondi', 'Phiri', 'Mpemba'),
           ('MW-LL-102', 'Limbani', 'Banda', 'Kanengo'),
@@ -142,13 +221,65 @@
           UPDATE students SET department_id = 2, year_of_study = 2 WHERE national_id = 'MW-LL-102';
           UPDATE students SET department_id = 1, year_of_study = 1 WHERE national_id = 'MW-BL-103';
 
-          -- Seed grades matching your student records
+          -- Seed grades matching  student records
           INSERT INTO students_grades (student_id, course_code, course_name, numeric_grade, letter_grade, lecturer_id) VALUES
           (1, 'PAS3101', 'Public Policy Analysis', 78, 'A', 1),
           (2, 'ISM2102', 'Database Systems Management', 85, 'A', 1)
           ON CONFLICT DO NOTHING;
+      when: inventory_hostname in groups['primary']
 
-    - name: 8. Verify backup storage target destination directory exists
+        # --- STANDBY HOT REPLICA INITIALIZATION RUNTIME (MPEMBA CAMPUS) ---
+    - name: 13. Stop PostgreSQL daemon on Standby node to clear conflict locks
+      service:
+        name: postgresql
+        state: stopped
+      when: inventory_hostname in groups['standby']
+
+    - name: 14. Purge Standby data directory completely to allow a clean clone
+      file:
+        path: "/var/lib/postgresql/{{ db_version }}/main"
+        state: absent
+      when: inventory_hostname in groups['standby']
+
+    - name: 15. Execute high-speed basebackup stream cluster clone from Primary
+      shell: |
+        PGPASSWORD="{{ vault_repl_password }}" pg_basebackup -h {{ primary_ip }} -U {{ vault_repl_user }} -p 5432 -D /var/lib/postgresql/{{ db_version }}/main -Fp -Xs -R
+      become_user: postgres
+      when: inventory_hostname in groups['standby']
+
+    - name: 15b. Force-inject explicit primary connection metadata into auto.conf
+      blockinfile:
+        path: "/var/lib/postgresql/{{ db_version }}/main/postgresql.auto.conf"
+        marker: "# {mark} MSG STREAMING REPLICATION CONNECTION STRINGS"
+        block: |
+          primary_conninfo = 'host={{ primary_ip }} port=5432 user={{ vault_repl_user }} password={{ vault_repl_password }} sslmode=prefer'
+      become_user: postgres
+      when: inventory_hostname in groups['standby']
+
+    - name: 15c. Guarantee the standby.signal marker file exists with correct ownership
+      file:
+        path: "/var/lib/postgresql/{{ db_version }}/main/standby.signal"
+        state: touch
+        owner: postgres
+        group: postgres
+        mode: '0600'
+      when: inventory_hostname in groups['standby']
+
+    - name: 16. Ensure hot standby transaction stream is active on Standby node
+      lineinfile:
+        path: "/etc/postgresql/{{ db_version }}/main/postgresql.conf"
+        regexp: "^#?hot_standby\\s*="
+        line: "listen_addresses = '*'\nhot_standby = on"
+      when: inventory_hostname in groups['standby']
+
+    - name: 17. Launch high-availability database cluster replication service
+      service:
+        name: postgresql
+        state: started
+      when: inventory_hostname in groups['standby']
+
+    # --- DISASTER RECOVERY & DISK MAINTENANCE ENGINE (PRIMARY SITE BACKUPS) ---
+    - name: 18. Verify backup storage target destination directory exists
       file:
         path: "/var/backups/postgres"
         state: directory
@@ -156,7 +287,7 @@
         group: postgres
         mode: '0755'
 
-    - name: 9. Deploy secure non-chained logical database backup execution script
+    - name: 19. Deploy secure non-chained logical database backup execution script
       copy:
         dest: /usr/local/bin/pg_backup.sh
         owner: postgres
@@ -165,16 +296,16 @@
         content: |
           #!/bin/bash
           # Secure Disaster Recovery Backup Engine for MSG
-          BACKUP_PATH="/var/backups/postgres/{{ vault_db_name }}_$(date +%Y%m%d_%H%M%S).sql.gz"
+          BACKUP_PATH="/var/backups/postgres/{{ vault_db_name }}$(date +%Y%m%d%H%M%S).sql.gz"
 
           echo "Starting institutional database backup sequence..."
 
-          # Force execution context to run completely inside the postgres user profile with gzip compression
           pg_dump {{ vault_db_name }} | gzip > "$BACKUP_PATH" 2> /var/backups/postgres/backup_error.log
 
           echo "Backup processing event finalized successfully."
 
-    - name: 10. Schedule cron job execution window for nightly automated backups
+
+    - name: 20. Schedule cron job execution window for nightly automated backups
       cron:
         name: "Execute nightly database backup schedule sequence"
         minute: "0"
