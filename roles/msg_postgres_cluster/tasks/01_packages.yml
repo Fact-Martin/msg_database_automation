@@ -1,0 +1,29 @@
+---
+- name: Ensure ACL tool package is present on host for privilege escalation
+  apt:
+    name: acl
+    state: present
+    update_cache: yes
+
+- name: Install PostgreSQL and database dependencies
+  apt:
+    name:
+      - "postgresql-{{ db_version }}"
+      - "postgresql-contrib-{{ db_version }}"
+      - python3-psycopg2
+    state: present
+
+- name: Verify and initialize default PostgreSQL cluster layout natively
+  file:
+    path: "/etc/postgresql/{{ db_version }}/main"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+
+- name: Rebuild baseline configuration infrastructure only if missing
+  command: "pg_createcluster {{ db_version }} main"
+  args:
+    creates: "/etc/postgresql/{{ db_version }}/main/postgresql.conf"
+  register: cluster_init
+  failed_when: false

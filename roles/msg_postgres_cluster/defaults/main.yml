@@ -1,0 +1,4 @@
+---
+db_version: "16"
+primary_ip: "192.168.106.132"
+subnet_boundary: "192.168.106.0/24"

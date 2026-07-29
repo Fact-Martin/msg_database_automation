@@ -1,0 +1,14 @@
+---
+- name: Execute Common Packages Installation Sequence
+  import_tasks: 01_packages.yml
+
+- name: Execute Cluster Configuration and Perimeter Hardening
+  import_tasks: 02_config.yml
+
+- name: Execute Primary Node Database Runtime Compilation
+  import_tasks: 03_primary.yml
+  when: inventory_hostname in groups['primary']
+
+- name: Execute Standby Hot Replica Stream Initialization
+  import_tasks: 04_standby.yml
+  when: inventory_hostname in groups['standby']
