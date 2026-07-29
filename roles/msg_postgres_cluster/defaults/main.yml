@@ -2,3 +2,11 @@
 db_version: "16"
 primary_ip: "192.168.106.132"
 subnet_boundary: "192.168.106.0/24"
+
+# Audit Logging Parameters
+pgaudit_log_type: "write, function, role, ddl"
+
+# Monitoring Architecture Ports
+postgres_exporter_port: "9187"
+prometheus_port: "9090"
+grafana_port: "3000"
