@@ -13,7 +13,7 @@ The automation partitions architecture execution natively, designating the **Lil
        [ Ansible Control Node ] (Workstation Orchestrator)
                   │
         ┌─────────┴─────────┐
-        ▼ (Port 22 / SSH)   ▼ (Port 22 / SSH)
+        ▼ (Custom_Port / SSH)   ▼ (Custom_Port / SSH)
 ┌───────────────────────┐   ┌───────────────────────┐
 │    kanengo-primary    │   │    mpemba-standby     │
 │    (Lilongwe Site)    │   │    (Blantyre Site)    │
@@ -22,7 +22,7 @@ The automation partitions architecture execution natively, designating the **Lil
 └───────────┬───────────┘   └───────────▲───────────┘
             │                           │
             └─────── WAL Streaming ─────┘
-                    (Port 5432 / TCP)
+                    (Custom_Port / TCP)
 ```
 
 ---
