@@ -41,7 +41,10 @@ To protect sensitive academic and institutional transcripts, out-of-the-box pass
 ### 4. Zero Plain-Text Credentials (AES-256 Encryption)
 Following industry security baselines, no master passwords, replication secrets, or database credentials live in clear text within the repository code. All parameters are fully encrypted using **Ansible Vault (AES-256 encryption)** and decrypted securely in volatile memory only during the deployment phase.
 
-### 5. Automated Disaster Recovery & Space Management
+### 5. Compliance Session Auditing (pgAudit Extension)
+To comply with the strict regulatory and data privacy frameworks mandated for Malawian statutory bodies, the framework natively embeds the **pgAudit (PostgreSQL Audit)** extension. By binding directly to system RAM on boot, pgAudit creates detailed, unalterable log trails tracking all system changes, roles adjustments, data writes, and structural modifications (DDL) across the entire institution.
+
+### 6. Automated Disaster Recovery & Space Management
 The Primary master node automatically builds a non-chained logical backup engine utility script to dump and compress database records into a secure storage directory (`/var/backups/postgres/`). This process is registered to run natively every single night at 1:00 AM using system chronometers (`cron`).
 
 ---
@@ -106,7 +109,22 @@ psql -h localhost -U msg_admin -d msg_student_records -c "CREATE TABLE test_brea
 ERROR: cannot execute CREATE TABLE in a read-only transaction
 ```
 
-### 4. Test Disaster Recovery Backup Extraction (Run on Primary Node: `.132`)
+### 4. Test Live Security Auditing Compliance (Run on Primary Node: `.132`)
+Execute a database transaction query modifying high-sensitivity fields directly on the Primary node to test the operational state of the pgAudit tracking engine:
+```bash
+psql -h localhost -U msg_admin -d msg_student_records -c "UPDATE students SET year_of_study = 4 WHERE national_id = 'MW-BL-101';"
+```
+Now, parse the active system log files to view the cryptographic forensic audit trail generated natively in the background:
+```bash
+sudo tail -n 10 /var/lib/postgresql/16/main/log/postgresql-*.log
+```
+**Expected Clean Output Statement:**
+```text
+2026-07-30 11:41:44.318 UTC msg_admin@msg_student_records LOG:  AUDIT: SESSION,1,1,WRITE,UPDATE,TABLE,public.students,UPDATE students SET year_of_study = 4 WHERE national_id = 'MW-BL-101';
+```
+*(The generated trace explicitly isolates the evaluating account user (`msg_admin`), target context framework (`public.students`), operation score (`WRITE,UPDATE`), and raw query syntax executed, ensuring total security accountability for external audit inspections).*
+
+### 5. Test Disaster Recovery Backup Extraction (Run on Primary Node: `.132`)
 Manually trigger the backup engine utility to confirm it cleanly captures data structures, saves processing logs, and applies compressed storage compression files:
 ```bash
 # Trigger the automated script profile
