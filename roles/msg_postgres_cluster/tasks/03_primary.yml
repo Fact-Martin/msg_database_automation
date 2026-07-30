@@ -1,4 +1,30 @@
 ---
+- name: Force write configuration variables using PostgreSQL ALTER SYSTEM engine utilities
+  shell: |
+    set -o pipefail
+    # Force inject shared preloads directly into the engine auto override files
+    sudo -u postgres psql -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements', 'pgaudit';"
+    sudo -u postgres psql -c "ALTER SYSTEM SET listen_addresses = '*';"
+    
+    # Force inject pgAudit session auditing criteria parameters
+    sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log = '{{ pgaudit_log_type }}';"
+    sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log_catalog = 'off';"
+    sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log_parameter = 'on';"
+    sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log_relation = 'on';"
+    
+    # Cycle the service deeply to clear memory maps and process allocations
+    systemctl stop postgresql@16-main || true
+    killall -9 postgres || true
+    systemctl start postgresql@16-main
+  args:
+    executable: /bin/bash
+
+- name: Wait for local Unix socket communication pathways to stabilize completely
+  wait_for:
+    path: "/var/run/postgresql/.s.PGSQL.5432"
+    state: started
+    timeout: 30
+
 - name: Provision high-speed streaming replication service account
   postgresql_user:
     name: "{{ vault_repl_user }}"
@@ -18,6 +44,7 @@
     name: "{{ vault_db_name }}"
     owner: "{{ vault_db_user }}"
   become_user: postgres
+
 
 - name: Build base student structures
   postgresql_query:
@@ -89,28 +116,37 @@
     columns: student_id
     state: present
 
-- name: Seed primary database instance with real institutional tuples
+- name: Seed primary database instance with real institutional tuples and activate pgAudit
   postgresql_query:
     login_db: "{{ vault_db_name }}"
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
     query: |
+      -- Active pgAudit extension inside core catalogs
+      CREATE EXTENSION IF NOT EXISTS pgaudit;
+
+      -- Seed institutional data records
       INSERT INTO departments (department_name, head_of_department) VALUES
       ('Public Administration', 'Dr. J. Phiri'),
       ('Information Systems Management', 'Prof. E. Banda') ON CONFLICT (department_name) DO NOTHING;
+      
       INSERT INTO staff (national_id, first_name, last_name, email, department_id, job_title) VALUES
       ('MW-ST-01', 'Grace', 'Chirwa', 'gchirwa@msg.ac.mw', 2, 'Senior Lecturer') ON CONFLICT (national_id) DO NOTHING;
+      
       INSERT INTO students (national_id, first_name, last_name, campus) VALUES
       ('MW-BL-101', 'Chikondi', 'Phiri', 'Mpemba'),
       ('MW-LL-102', 'Limbani', 'Banda', 'Kanengo'),
       ('MW-BL-103', 'Tiame', 'Kumwenda', 'Mpemba') ON CONFLICT (national_id) DO NOTHING;
+      
       UPDATE students SET department_id = 1, year_of_study = 3 WHERE national_id = 'MW-BL-101';
       UPDATE students SET department_id = 2, year_of_study = 2 WHERE national_id = 'MW-LL-102';
       UPDATE students SET department_id = 1, year_of_study = 1 WHERE national_id = 'MW-BL-103';
+      
       INSERT INTO students_grades (student_id, course_code, course_name, numeric_grade, letter_grade, lecturer_id) VALUES
       (1, 'PAS3101', 'Public Policy Analysis', 78, 'A', 1),
       (2, 'ISM2102', 'Database Systems Management', 85, 'A', 1) ON CONFLICT DO NOTHING;
+
 
 - name: Verify backup storage target destination directory exists
   file:
@@ -135,3 +171,4 @@
     hour: "1"
     user: postgres
     job: "/usr/local/bin/pg_backup.sh"
+

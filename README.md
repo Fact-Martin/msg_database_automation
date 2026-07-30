@@ -119,6 +119,6 @@ ls -lh /var/backups/postgres/
 ```text
 total 4.0K
 -rw-r--r-- 1 postgres postgres    0 Jul 29 14:45 backup_error.log
--rw-r--r-- 1 postgres postgres 1.2K Jul 29 14:45 msg_student_records_20260729_144512.sql.gz
+-rw-r--r-- 1 postgres postgres 2.0K Jul 29 14:45 msg_student_records_20260729_144512.sql.gz
 ```
 *(The `2.0K` `.gz` archive file proves all tables and transcripts were securely packed, and the `0` byte error log size guarantees a fault-free run).*

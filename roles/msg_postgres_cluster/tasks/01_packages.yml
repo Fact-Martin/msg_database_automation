@@ -10,6 +10,7 @@
     name:
       - "postgresql-{{ db_version }}"
       - "postgresql-contrib-{{ db_version }}"
+      - "postgresql-{{ db_version }}-pgaudit" 
       - python3-psycopg2
     state: present
 
