@@ -6,6 +6,9 @@
     sudo -u postgres psql -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements', 'pgaudit';"
     sudo -u postgres psql -c "ALTER SYSTEM SET listen_addresses = '*';"
     
+    # SECURE PORT REDIRECTION: Configure ALTER SYSTEM engine to bind to the custom port space
+    sudo -u postgres psql -c "ALTER SYSTEM SET port = '{{ custom_db_port }}';"
+    
     # Force inject pgAudit session auditing criteria parameters
     sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log = '{{ pgaudit_log_type }}';"
     sudo -u postgres psql -c "ALTER SYSTEM SET pgaudit.log_catalog = 'off';"
@@ -21,7 +24,7 @@
 
 - name: Wait for local Unix socket communication pathways to stabilize completely
   wait_for:
-    path: "/var/run/postgresql/.s.PGSQL.5432"
+    path: "/var/run/postgresql/.s.PGSQL.{{ custom_db_port }}"
     state: started
     timeout: 30
 
@@ -30,6 +33,7 @@
     name: "{{ vault_repl_user }}"
     password: "{{ vault_repl_password }}"
     role_attr_flags: REPLICATION
+    login_port: "{{ custom_db_port }}"
   become_user: postgres
 
 - name: Provision production administrative user account
@@ -37,14 +41,15 @@
     name: "{{ vault_db_user }}"
     password: "{{ vault_db_password }}"
     role_attr_flags: SUPERUSER
+    login_port: "{{ custom_db_port }}"
   become_user: postgres
 
 - name: Initialize primary institutional database instance
   postgresql_db:
     name: "{{ vault_db_name }}"
     owner: "{{ vault_db_user }}"
+    login_port: "{{ custom_db_port }}"
   become_user: postgres
-
 
 - name: Build base student structures
   postgresql_query:
@@ -52,6 +57,7 @@
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
+    login_port: "{{ custom_db_port }}"
     query: |
       CREATE TABLE IF NOT EXISTS students (
           student_id SERIAL PRIMARY KEY,
@@ -67,6 +73,7 @@
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
+    login_port: "{{ custom_db_port }}"
     query: |
       CREATE TABLE IF NOT EXISTS departments (
           department_id SERIAL PRIMARY KEY,
@@ -100,6 +107,7 @@
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
+    login_port: "{{ custom_db_port }}"
     table: students
     idxname: idx_students_campus
     columns: campus
@@ -111,6 +119,7 @@
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
+    login_port: "{{ custom_db_port }}"
     table: students_grades
     idxname: idx_grades_student_id
     columns: student_id
@@ -122,6 +131,7 @@
     login_user: "{{ vault_db_user }}"
     login_password: "{{ vault_db_password }}"
     login_host: localhost
+    login_port: "{{ custom_db_port }}"
     query: |
       -- Active pgAudit extension inside core catalogs
       CREATE EXTENSION IF NOT EXISTS pgaudit;
@@ -148,7 +158,6 @@
       (1, 'PAS3101', 'Public Policy Analysis', 78, 'A', 1),
       (2, 'ISM2102', 'Database Systems Management', 85, 'A', 1) ON CONFLICT DO NOTHING;
 
-
 - name: Verify backup storage target destination directory exists
   file:
     path: "/var/backups/postgres"
@@ -172,4 +181,3 @@
     hour: "1"
     user: postgres
     job: "/usr/local/bin/pg_backup.sh"
-

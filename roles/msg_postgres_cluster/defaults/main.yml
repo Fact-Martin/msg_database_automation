@@ -5,3 +5,7 @@ subnet_boundary: "192.168.106.0/24"
 
 # Audit Logging Parameters
 pgaudit_log_type: "write, function, role, ddl"
+
+# SECURE SECURITY OVERRIDES
+custom_ssh_port: "2202"
+custom_db_port: "5433"   # Updated from 5432

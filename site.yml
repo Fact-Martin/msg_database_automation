@@ -2,5 +2,7 @@
 - name: Secure Multi-Campus Relational Database Orchestration & Boundary Hardening
   hosts: msg_db_servers
   become: yes
+  vars:
+    ansible_user: "{{ vault_ansible_user }}"
   roles:
     - msg_postgres_cluster

@@ -11,7 +11,7 @@
 
 - name: Execute high-speed basebackup stream cluster clone from Primary
   shell: |
-    PGPASSWORD="{{ vault_repl_password }}" pg_basebackup -h {{ primary_ip }} -U {{ vault_repl_user }} -p 5432 -D /var/lib/postgresql/{{ db_version }}/main -Fp -Xs -R
+    PGPASSWORD="{{ vault_repl_password }}" pg_basebackup -h {{ primary_ip }} -U {{ vault_repl_user }} -p {{ custom_db_port }} -D /var/lib/postgresql/{{ db_version }}/main -Fp -Xs -R
   become_user: postgres
 
 - name: Force-inject explicit primary connection metadata into auto.conf
@@ -19,7 +19,7 @@
     path: "/var/lib/postgresql/{{ db_version }}/main/postgresql.auto.conf"
     marker: "# {mark} MSG STREAMING REPLICATION CONNECTION STRINGS"
     block: |
-      primary_conninfo = 'host={{ primary_ip }} port=5432 user={{ vault_repl_user }} password={{ vault_repl_password }} sslmode=prefer'
+      primary_conninfo = 'host={{ primary_ip }} port={{ custom_db_port }} user={{ vault_repl_user }} password={{ vault_repl_password }} sslmode=prefer'
   become_user: postgres
 
 - name: Guarantee the standby.signal marker file exists with correct ownership

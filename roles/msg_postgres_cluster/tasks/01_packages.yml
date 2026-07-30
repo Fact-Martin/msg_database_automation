@@ -5,6 +5,17 @@
     state: present
     update_cache: yes
 
+- name: Guarantee secure custom ports are open in the system firewall natively
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    state: enabled
+  loop:
+    - "{{ custom_ssh_port }}"
+    - "{{ custom_db_port }}"
+
+
 - name: Install PostgreSQL and database dependencies
   apt:
     name:

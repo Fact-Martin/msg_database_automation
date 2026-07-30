@@ -15,12 +15,26 @@
       host    all             all             127.0.0.1/32            scram-sha-256
   notify: Restart PostgreSQL
 
+- name: Relocate core OpenSSH server network listeners to secure custom port boundary
+  lineinfile:
+    path: "/etc/ssh/sshd_config"
+    regexp: "^#?Port\\s+"
+    line: "Port {{ custom_ssh_port }}"
+  notify: Restart SSH
+
+- name: Enforce modern Ubuntu systemd socket activation mappings for new SSH port 
+  shell: |
+    mkdir -p /etc/systemd/system/ssh.socket.d/
+    cat << 'EOF' > /etc/systemd/system/ssh.socket.d/listen.conf
+    [Socket]
+    ListenStream=
+    ListenStream={{ custom_ssh_port }}
+    EOF
+    systemctl daemon-reload
+    systemctl restart ssh.socket || systemctl restart ssh
+  args:
+    executable: /bin/bash
+  notify: Restart SSH
+
 - name: Flush handlers to apply configuration adjustments immediately
   meta: flush_handlers
-
-- name: Wait for PostgreSQL local UNIX socket to become active
-  wait_for:
-    path: "/var/run/postgresql/.s.PGSQL.5432"
-    state: started
-    timeout: 25
-  when: inventory_hostname in groups['primary']
