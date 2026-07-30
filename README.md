@@ -47,6 +47,10 @@ To comply with the strict regulatory and data privacy frameworks mandated for Ma
 ### 6. Automated Disaster Recovery & Space Management
 The Primary master node automatically builds a non-chained logical backup engine utility script to dump and compress database records into a secure storage directory (`/var/backups/postgres/`). This process is registered to run natively every single night at 1:00 AM using system chronometers (`cron`).
 
+### 7. Native Query Performance Profiling (pg_stat_statements)
+To track and eliminate database bottlenecks across campus systems, the framework activates **`pg_stat_statements`**. This extension records every query executed on the server, tracking exactly how many times it ran, its total execution time, and memory usage. This allows the Systems Administrator to easily find and optimize slow, poorly written queries before they degrade student application load times.
+
+
 ---
 
 ##  Relational Data Structure Layout
@@ -140,3 +144,35 @@ total 4.0K
 -rw-r--r-- 1 postgres postgres 2.0K Jul 29 14:45 msg_student_records_20260729_144512.sql.gz
 ```
 *(The `2.0K` `.gz` archive file proves all tables and transcripts were securely packed, and the `0` byte error log size guarantees a fault-free run).*
+
+### 6. Monitoring and Finding Slow Database Queries (Performance Tracking)
+To look inside the engine's query memory tracking tables and isolate the top 5 slowest database queries on the system sorted by their total runtime, run this query on the Primary Node (`.132`):
+
+```bash
+psql -h localhost -U msg_admin -d msg_student_records -c "
+SELECT 
+    calls,
+    ROUND(total_exec_time::numeric, 2) AS total_time_ms,
+    ROUND(mean_exec_time::numeric, 2) AS avg_time_ms,
+    ROUND((100 * total_exec_time / sum(total_exec_time) OVER ())::numeric, 2) AS percentage_of_total_load,
+    query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 5;"
+```
+
+**Expected Clean Output Metrics:**
+```text
+ calls | total_time_ms | avg_time_ms | percentage_of_total_load |                                                 query
+-------+---------------+-------------+--------------------------+-------------------------------------------------------------------------------------------------------
+     9 |         26.88 |        2.99 |                    12.94 | SELECT version FROM pg_catalog.pg_available_extension_versions WHERE name = $1
+     1 |         20.51 |       20.51 |                     9.88 | CREATE DATABASE "msg_student_records" OWNER "msg_admin"
+     1 |         18.92 |       18.92 |                     9.11 | CREATE EXTENSION IF NOT EXISTS pg_stat_statements
+    23 |          8.61 |        0.37 |                     4.15 | CREATE TABLE IF NOT EXISTS departments (                                                             +
+       |               |             |                          |     department_id SERIAL PRIMARY KEY,                                                                +
+       |               |             |                          |     department_name VARCHAR(100) NOT NULL UNIQUE,                                                    +
+       |               |             |                          |     head_of_department VARCHAR(100)                                                                  +
+       |               |             |                          | )
+    23 |          8.47 |        0.37 |                     4.08 | ALTER TABLE students ADD COLUMN IF NOT EXISTS year_of_study INT CHECK (year_of_study BETWEEN 1 AND 4)
+```
+*(The performance profiling matrix explicitly isolates how many times a statement was executed (`calls`), its cumulative load time inside the engine (`total_time_ms`), and its average latency footprint (`avg_time_ms`), giving the engineering team immediate clarity on what queries require indexing optimization fixes).*

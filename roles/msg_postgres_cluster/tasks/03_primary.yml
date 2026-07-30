@@ -125,6 +125,7 @@
     query: |
       -- Active pgAudit extension inside core catalogs
       CREATE EXTENSION IF NOT EXISTS pgaudit;
+      CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
       -- Seed institutional data records
       INSERT INTO departments (department_name, head_of_department) VALUES
