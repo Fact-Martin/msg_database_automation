@@ -13,7 +13,7 @@ The automation partitions architecture execution natively, designating the **Lil
        [ Ansible Control Node ] (Workstation Orchestrator)
                   │
         ┌─────────┴─────────┐
-        ▼ (Custom_Port / SSH)   ▼ (Custom_Port / SSH)
+        ▼ (Port 2202/ SSH)   ▼ (Port 2202 / SSH)
 ┌───────────────────────┐   ┌───────────────────────┐
 │    kanengo-primary    │   │    mpemba-standby     │
 │    (Lilongwe Site)    │   │    (Blantyre Site)    │
@@ -22,7 +22,7 @@ The automation partitions architecture execution natively, designating the **Lil
 └───────────┬───────────┘   └───────────▲───────────┘
             │                           │
             └─────── WAL Streaming ─────┘
-                    (Custom_Port / TCP)
+                    (Port  5433/ TCP)
 ```
 
 ---
@@ -33,7 +33,7 @@ The automation partitions architecture execution natively, designating the **Lil
 Instead of a single, bulky script file, the infrastructure is broken down into structured, isolated components under a standard Ansible Role (`msg_postgres_cluster`). This layout isolates package delivery, performance optimization profiles, primary seeding steps, and standby streaming hooks into dedicated task files, ensuring zero configuration drift.
 
 ### 2. High-Availability Streaming Replication
-The cluster utilizes PostgreSQL Write-Ahead Log (WAL) streaming. The Primary master node processes live student registrations and changes, continuously broadcasting transaction changes over network port 5432. The Standby node receives these changes and runs in hot standby (read-only) mode, ready to instantly take over if the primary campus node loses power or connectivity.
+The cluster utilizes PostgreSQL Write-Ahead Log (WAL) streaming. The Primary master node processes live student registrations and changes, continuously broadcasting transaction changes over network port 5433. The Standby node receives these changes and runs in hot standby (read-only) mode, ready to instantly take over if the primary campus node loses power or connectivity.
 
 ### 3. Strict Network Perimeter Hardening (Airtight Security)
 To protect sensitive academic and institutional transcripts, out-of-the-box password-less loopbacks are disabled. System firewalls and Host-Based Authentication files (`pg_hba.conf`) are programmatically modified to accept connections **exclusively** from the local `192.168.106.0/24` subnet. All unknown network requests are dropped instantly.
